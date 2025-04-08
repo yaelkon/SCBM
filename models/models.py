@@ -89,8 +89,8 @@ class SCBM(nn.Module):
                 torch.load(
                     os.path.join(
                         config_model.model_directory, "resnet/resnet18-5c106cde.pth"
-                    )
-                )
+                    ), weights_only=False,
+                ),
             )
 
             n_features = self.encoder_res.fc.in_features
