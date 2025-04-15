@@ -10,6 +10,7 @@ from datasets.synthetic_dataset import get_synthetic_datasets
 from datasets.CUB_dataset import get_CUB_dataloaders
 from datasets.cifar10_dataset import get_CIFAR10_CBM_dataloader
 from datasets.cifar100_dataset import get_CIFAR100_CBM_dataloader
+from datasets.mnist_sum import get_MNIST_SUM_dataset
 from utils.utils import numerical_stability_check
 
 
@@ -75,6 +76,11 @@ def get_data(config_base, config, gen):
         trainset, validset, testset = get_CIFAR100_CBM_dataloader(
             config.data_path,
         )
+    elif config.dataset == "mnist_sum":
+        print("MNIST_SUM DATASET")
+        trainset, validset, testset = get_MNIST_SUM_dataset(
+            config,
+            )
     else:
         NotImplementedError("ERROR: Dataset not supported!")
 
