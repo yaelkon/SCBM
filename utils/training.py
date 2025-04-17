@@ -1,17 +1,11 @@
 """
 Utility functions for training.
 """
-
-import numpy as np
-from sklearn.metrics import jaccard_score
 import torch
-from torch import nn
-from tqdm import tqdm
-from torchmetrics import Metric
 import wandb
 
-from utils.metrics import calc_target_metrics, calc_concept_metrics
-from utils.plotting import compute_and_plot_heatmap
+from tqdm import tqdm
+from utils.plotting import compute_and_plot_heatmap, plot_subpopulations_stats
 
 
 def train_one_epoch_scbm(
@@ -68,22 +62,22 @@ def train_one_epoch_scbm(
         concepts_true = batch["concepts"].to(device)
 
         # Forward pass
-        concepts_mcmc_probs, triang_cov, target_pred_logits = model(
+        output = model(
             batch_features, epoch, c_true=concepts_true
         )
-
+        concepts_mcmc_probs, triang_cov, target_pred_logits = output["c_mcmc_prob"], output["c_triang_cov"], output["y_pred_logits"]
         # Backward pass depends on the training mode of the model
         optimizer.zero_grad()
 
         # Compute the loss
-        target_loss, concepts_loss, prec_loss, total_loss = loss_fn(
+        loss_dict = loss_fn(
             concepts_mcmc_probs,
             concepts_true,
             target_pred_logits,
             target_true,
             triang_cov,
         )
-
+        target_loss, concepts_loss, prec_loss, total_loss = loss_dict["target_loss"], loss_dict["concepts_loss"], loss_dict["prec_loss"], loss_dict["total_loss"]
         if mode == "j":
             total_loss.backward()
         elif mode == "c":
@@ -168,17 +162,13 @@ def train_one_epoch_cbm(
 
         # Forward pass
         if config.model.training_mode == "independent" and mode == "t":
-            concepts_pred_probs, target_pred_logits, concepts_hard = model(
-                batch_features, epoch, concepts_true
-            )
+            output = model(batch_features, epoch, concepts_true)
         elif config.model.concept_learning == "autoregressive" and mode == "c":
-            concepts_pred_probs, target_pred_logits, concepts_hard = model(
-                batch_features, epoch, concepts_train_ar=concepts_true
-            )
+            output = model(batch_features, epoch, concepts_train_ar=concepts_true)
         else:
-            concepts_pred_probs, target_pred_logits, concepts_hard = model(
-                batch_features, epoch
-            )
+            output = model(batch_features, epoch)
+        concepts_pred_probs, target_pred_logits = output["c_prob"], output["y_pred_logits"]
+        
         # Backward pass depends on the training mode of the model
         optimizer.zero_grad()
         # Compute the loss
@@ -226,6 +216,7 @@ def validate_one_epoch_scbm(
     device,
     test=False,
     concept_names_graph=None,
+    population_metrics=None,
 ):
     """
     Validate the Stochastic Concept Bottleneck Model (SCBM) for one epoch.
@@ -266,9 +257,10 @@ def validate_one_epoch_scbm(
             ].to(device)
             concepts_true = batch["concepts"].to(device)
 
-            concepts_mcmc_probs, triang_cov, target_pred_logits = model(
+            output = model(
                 batch_features, epoch, validation=True, c_true=concepts_true
             )
+            concepts_mcmc_probs, triang_cov, target_pred_logits = output["c_mcmc_prob"], output["c_triang_cov"], output["y_pred_logits"]
             # Compute covariance matrix of concepts
             cov = torch.matmul(triang_cov, torch.transpose(triang_cov, dim0=1, dim1=2))
 
@@ -286,13 +278,14 @@ def validate_one_epoch_scbm(
                 except:
                     pass
 
-            target_loss, concepts_loss, prec_loss, total_loss = loss_fn(
+            losses_dict = loss_fn(
                 concepts_mcmc_probs,
                 concepts_true,
                 target_pred_logits,
                 target_true,
                 triang_cov,
             )
+            target_loss, concepts_loss, prec_loss, total_loss = losses_dict["target_loss"], losses_dict["concepts_loss"], losses_dict["prec_loss"], losses_dict["total_loss"]
 
             # Store predictions
             concepts_pred_probs = concepts_mcmc_probs.mean(-1)
@@ -306,9 +299,26 @@ def validate_one_epoch_scbm(
                 concepts_pred_probs,
                 prec_loss=prec_loss,
             )
-
+            if population_metrics is not None:
+                population_metrics.update(
+                    target_loss=losses_dict["per_sample_target_loss"],
+                    concepts_loss=losses_dict["per_concept_loss"],
+                    y_true=target_true,
+                    y_pred_logits=target_pred_logits,
+                    c_true=concepts_true,
+                    c_pred_probs=concepts_pred_probs,
+                    c_mcmc_pred_probs=concepts_mcmc_probs,
+                    cov_mat=cov,
+                )
     # Calculate and log metrics
     metrics_dict = metrics.compute(validation=True, config=config)
+    if population_metrics is not None:
+        population_metrics_dict = population_metrics.compute(validation=True)
+        plot_subpopulations_stats(
+            population_metrics=population_metrics_dict,
+            save_path=config.logging.save_dir,
+            plot_uncertainty=True
+        )
 
     if not test:
         wandb.log({f"validation/{k}": v for k, v in metrics_dict.items()})
@@ -321,6 +331,8 @@ def validate_one_epoch_scbm(
     print(prints)
     print()
     metrics.reset()
+    if population_metrics is not None:
+        population_metrics.reset()
     return
 
 
@@ -334,6 +346,7 @@ def validate_one_epoch_cbm(
     device,
     test=False,
     concept_names_graph=None,
+    population_metrics=None,
 ):
     """
     Validate a baseline method for one epoch.
@@ -370,23 +383,20 @@ def validate_one_epoch_cbm(
             ].to(device)
             concepts_true = batch["concepts"].to(device)
 
-            concepts_pred_probs, target_pred_logits, concepts_hard = model(
+            output = model(
                 batch_features, epoch, validation=True
             )
-            if config.model.concept_learning == "autoregressive":
-                concepts_input = concepts_hard
-            elif config.model.concept_learning == "hard":
-                concepts_input = concepts_hard
-            else:
-                concepts_input = concepts_pred_probs
+            concepts_pred_probs, target_pred_logits = output["c_prob"], output["y_pred_logits"]
+            
             if config.model.concept_learning == "autoregressive":
                 concepts_pred_probs = torch.mean(
                     concepts_pred_probs, dim=-1
                 )  # Calculating the metrics on the average probabilities from MCMC
 
-            target_loss, concepts_loss, total_loss = loss_fn(
+            losses_dict = loss_fn(
                 concepts_pred_probs, concepts_true, target_pred_logits, target_true
             )
+            target_loss, concepts_loss, total_loss = losses_dict["target_loss"], losses_dict["concepts_loss"], losses_dict["total_loss"]
 
             # Store predictions
             metrics.update(
@@ -399,8 +409,27 @@ def validate_one_epoch_cbm(
                 concepts_pred_probs,
             )
 
+            if population_metrics is not None:
+                population_metrics.update(
+                    target_loss=losses_dict["per_sample_target_loss"],
+                    concepts_loss=losses_dict["per_concept_loss"],
+                    y_true=target_true,
+                    y_pred_logits=target_pred_logits,
+                    c_true=concepts_true,
+                    c_pred_probs=concepts_pred_probs,
+                    # c_mcmc_pred_probs=concepts_mcmc_probs,
+                    # cov_mat=cov,
+                )
+
     # Calculate and log metrics
     metrics_dict = metrics.compute(validation=True, config=config)
+    if population_metrics is not None:
+        population_metrics_dict = population_metrics.compute(validation=True)
+        plot_subpopulations_stats(
+            population_metrics=population_metrics_dict,
+            save_path=config.logging.save_dir,
+            plot_uncertainty=False
+        )
     if not test:
         wandb.log({f"validation/{k}": v for k, v in metrics_dict.items()})
         prints = f"Epoch {epoch}, Validation: "
@@ -412,6 +441,8 @@ def validate_one_epoch_cbm(
     print(prints)
     print()
     metrics.reset()
+    if population_metrics is not None:
+        population_metrics.reset()
     return
 
 
@@ -436,150 +467,6 @@ def create_optimizer(config, model):
         return torch.optim.SGD(optim_params)
     elif config.optimizer == "adam":
         return torch.optim.Adam(optim_params)
-
-
-class Custom_Metrics(Metric):
-    """
-    Custom metrics class for tracking and computing various metrics during training and validation.
-
-    This class extends the PyTorch Metric class and provides methods to update and compute metrics such as
-    target loss, concept loss, total loss, accuracy, and Jaccard index for both target and concepts.
-    It is being updated for each batch. At the end of each epoch, the compute function is called to compute
-    the final metrics and return them as a dictionary.
-
-    Args:
-        n_concepts (int): The number of concepts in the model.
-        device (torch.device): The device to run the computations on.
-
-    Attributes:
-        n_concepts (int): The number of concepts in the model.
-        target_loss (torch.Tensor): The accumulated target loss.
-        concepts_loss (torch.Tensor): The accumulated concepts loss.
-        total_loss (torch.Tensor): The accumulated total loss.
-        y_true (list): List of true target labels.
-        y_pred_logits (list): List of predicted target logits.
-        c_true (list): List of true concept labels.
-        c_pred_probs (list): List of predicted concept probabilities.
-        batch_features (list): List of batch features.
-        cov_norm (torch.Tensor): The accumulated covariance norm.
-        n_samples (torch.Tensor): The number of samples processed.
-        prec_loss (torch.Tensor): The accumulated precision loss.
-    """
-
-    def __init__(self, n_concepts, device):
-        super().__init__()
-        self.n_concepts = n_concepts
-        self.add_state("target_loss", default=torch.tensor(0.0, device=device))
-        self.add_state("concepts_loss", default=torch.tensor(0.0, device=device))
-        self.add_state("total_loss", default=torch.tensor(0.0, device=device))
-        self.add_state("y_true", default=[])
-        self.add_state("y_pred_logits", default=[])
-        self.add_state("c_true", default=[])
-        (
-            self.add_state("c_pred_probs", default=[]),
-            self.add_state("concepts_input", default=[]),
-        ),
-        self.add_state("batch_features", default=[])
-        self.add_state("cov_norm", default=torch.tensor(0.0, device=device))
-        self.add_state(
-            "n_samples", default=torch.tensor(0, dtype=torch.int, device=device)
-        )
-        self.add_state("prec_loss", default=torch.tensor(0.0, device=device))
-
-    def update(
-        self,
-        target_loss: torch.Tensor,
-        concepts_loss: torch.Tensor,
-        total_loss: torch.Tensor,
-        y_true: torch.Tensor,
-        y_pred_logits: torch.Tensor,
-        c_true: torch.Tensor,
-        c_pred_probs: torch.Tensor,
-        cov_norm: torch.Tensor = None,
-        prec_loss: torch.Tensor = None,
-    ):
-        assert c_true.shape == c_pred_probs.shape
-
-        n_samples = y_true.size(0)
-        self.ce = nn.CrossEntropyLoss()
-        self.bce = nn.BCELoss()
-        self.n_samples += n_samples
-        self.target_loss += target_loss * n_samples
-        self.concepts_loss += concepts_loss * n_samples
-        self.total_loss += total_loss * n_samples
-        self.y_true.append(y_true)
-        self.y_pred_logits.append(y_pred_logits.detach())
-        self.c_true.append(c_true)
-        self.c_pred_probs.append(c_pred_probs.detach())
-        if cov_norm:
-            self.cov_norm += cov_norm * n_samples
-        if prec_loss:
-            self.prec_loss += prec_loss * n_samples
-
-    def compute(self, validation=False, config=None):
-        y_true = torch.cat(self.y_true, dim=0).cpu()
-        c_true = torch.cat(self.c_true, dim=0).cpu()
-        c_pred_probs = torch.cat(self.c_pred_probs, dim=0).cpu()
-        y_pred_logits = torch.cat(self.y_pred_logits, dim=0).cpu()
-        c_true = c_true.cpu().numpy()
-        c_pred_probs = c_pred_probs.cpu().numpy()
-        c_pred = c_pred_probs > 0.5
-        if y_pred_logits.size(1) == 1:
-            y_pred_probs = nn.Sigmoid()(y_pred_logits.squeeze())
-            y_pred = y_pred_probs > 0.5
-        else:
-            y_pred_probs = nn.Softmax(dim=1)(y_pred_logits)
-            y_pred = y_pred_logits.argmax(dim=-1)
-
-        target_acc = (y_true == y_pred).sum() / self.n_samples
-        concept_acc = (c_true == c_pred).sum() / (self.n_samples * self.n_concepts)
-        complete_concept_acc = (
-            (c_true == c_pred).sum(1) == self.n_concepts
-        ).sum() / self.n_samples
-        target_jaccard = jaccard_score(y_true, y_pred, average="micro")
-        concept_jaccard = jaccard_score(c_true, c_pred, average="micro")
-        metrics = dict(
-            {
-                "target_loss": self.target_loss / self.n_samples,
-                "prec_loss": self.prec_loss / self.n_samples,
-                "concepts_loss": self.concepts_loss / self.n_samples,
-                "total_loss": self.total_loss / self.n_samples,
-                "y_accuracy": target_acc,
-                "c_accuracy": concept_acc,
-                "complete_c_accuracy": complete_concept_acc,
-                "target_jaccard": target_jaccard,
-                "concept_jaccard": concept_jaccard,
-            }
-        )
-
-        if self.cov_norm != 0:
-            metrics = metrics | {"covariance_norm": self.cov_norm / self.n_samples}
-
-        if validation is True:
-            c_pred_probs_list = []
-            for j in range(self.n_concepts):
-                c_pred_probs_list.append(
-                    np.hstack(
-                        (
-                            np.expand_dims(1 - c_pred_probs[:, j], 1),
-                            np.expand_dims(c_pred_probs[:, j], 1),
-                        )
-                    )
-                )
-
-            y_metrics = calc_target_metrics(
-                y_true.numpy(), y_pred_probs.numpy(), config.data
-            )
-            c_metrics, c_metrics_per_concept = calc_concept_metrics(
-                c_true, c_pred_probs_list, config.data
-            )
-            metrics = (
-                metrics
-                | {f"y_{k}": v for k, v in y_metrics.items()}
-                | {f"c_{k}": v for k, v in c_metrics.items()}
-            )  # | c_metrics_per_concept # Update dict
-
-        return metrics
 
 
 def freeze_module(m):

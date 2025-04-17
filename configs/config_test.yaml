@@ -1,0 +1,12 @@
+experiment_name: 'experiments' # Name of the experiment
+experiment_dir: './experiments/scbm/mnist_sum/20250410-164342_scbm_simpleCNN/'  # Directory to potentially save the model to
+
+seed: 42 # Random seed
+workers: 4 # Number of workers for data loading
+
+logging:
+  project: 'SCBM' # Name of the wandb project
+  mode: 'disabled' # Whether to log to wandb [online, offline, disabled]
+  entity: "yaelkon3" # Your wandb entity
+  experiment_name: '' # Name of the experiment
+  save_dir: ${experiment_dir} # Path to save the model

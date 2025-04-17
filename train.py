@@ -28,8 +28,8 @@ from utils.training import (
     train_one_epoch_scbm,
     validate_one_epoch_cbm,
     validate_one_epoch_scbm,
-    Custom_Metrics,
 )
+from utils.metrics import Custom_Metrics, Population_Metrics
 from utils.utils import reset_random_seeds
 
 
@@ -55,7 +55,7 @@ def train(config):
 
     # Setting device on GPU if available, else CPU
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+    # device = torch.device("cpu")
     # Additional info when using cuda
     if device.type == "cuda":
         print("Using", torch.cuda.get_device_name(0))
@@ -63,14 +63,15 @@ def train(config):
         print("No GPU available")
 
     # Set paths
-    timestr = time.strftime("%Y%m%d-%H%M%S")
-    ex_name = "{}_{}".format(str(timestr), uuid.uuid4().hex[:5])
-    experiment_path = (
-        Path(config.experiment_dir) / config.model.model / config.data.dataset / ex_name
-    )
-    experiment_path.mkdir(parents=True)
-    config.experiment_dir = str(experiment_path)
-    print("Experiment path: ", experiment_path)
+    if not config.logging.debug_mode:
+        timestr = time.strftime("%Y%m%d-%H%M%S")
+        ex_name = "{}_{}".format(str(timestr), config.logging.experiment_name)
+        experiment_path = (
+            Path(config.experiment_dir) / config.model.model / config.data.dataset / ex_name
+        )
+        experiment_path.mkdir(parents=True)
+        config.experiment_dir = str(experiment_path)
+        print("Experiment path: ", experiment_path)
 
     # Wandb
     os.environ["WANDB_CACHE_DIR"] = os.path.join(
@@ -80,9 +81,10 @@ def train(config):
     wandb.init(
         project=config.logging.project,
         reinit=True,
-        entity=config.logging.entity,
+        # entity=config.logging.entity,
         config=OmegaConf.to_container(config, resolve=True),
         mode=config.logging.mode,
+        name=config.logging.experiment_name,
         tags=[config.model.tag],
     )
     if config.logging.mode in ["online", "disabled"]:
@@ -175,7 +177,7 @@ def train(config):
         )
         for epoch in range(p_epochs):
             # Validate the model periodically
-            if epoch % config.model.validate_per_epoch == 0:
+            if epoch % config.model.validate_per_epoch == 0 and epoch > 0:
                 print("\nEVALUATION ON THE VALIDATION SET:\n")
                 validate_one_epoch(
                     val_loader, model, metrics, epoch, config, loss_fn, device
@@ -211,7 +213,7 @@ def train(config):
         )
         for epoch in range(c_epochs):
             # Validate the model periodically
-            if epoch % config.model.validate_per_epoch == 0:
+            if epoch % config.model.validate_per_epoch == 0 and epoch > 0:
                 print("\nEVALUATION ON THE VALIDATION SET:\n")
                 validate_one_epoch(
                     val_loader, model, metrics, epoch, config, loss_fn, device
@@ -250,11 +252,14 @@ def train(config):
     # If sequential & independent training: second stage is training of target predictor
     # If joint training: training of both concept encoder and target predictor
     for epoch in range(0, t_epochs):
-        if epoch % config.model.validate_per_epoch == 0:
+        if epoch % config.model.validate_per_epoch == 0 and epoch > 0:
             print("\nEVALUATION ON THE VALIDATION SET:\n")
             validate_one_epoch(
                 val_loader, model, metrics, epoch, config, loss_fn, device
             )
+            if config.save_model:
+                torch.save(model.state_dict(), join(experiment_path, f"model_epoch:{epoch}.pth"))
+
         train_one_epoch(
             train_loader,
             model,
@@ -270,7 +275,7 @@ def train(config):
 
     model.apply(freeze_module)
     if config.save_model:
-        torch.save(model.state_dict(), join(experiment_path, "model.pth"))
+        torch.save(model.state_dict(), join(experiment_path, "model_last.pth"))
         print("\nTRAINING FINISHED, MODEL SAVED!", flush=True)
     else:
         print("\nTRAINING FINISHED", flush=True)
@@ -289,10 +294,11 @@ def train(config):
     )
 
     # Intervention curves
-    print("\nPERFORMING INTERVENTIONS:\n")
-    intervene(
-        train_loader, test_loader, model, metrics, t_epochs, config, loss_fn, device
-    )
+    if config.execute_intervention:
+        print("\nPERFORMING INTERVENTIONS:\n")
+        intervene(
+            train_loader, test_loader, model, metrics, t_epochs, config, loss_fn, device
+        )
 
     wandb.finish(quiet=True)
     return None

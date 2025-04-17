@@ -8,6 +8,20 @@ import random
 import torch
 
 
+def torch_to_numpy(tensor):
+    """
+    Convert a PyTorch tensor to a NumPy array.
+
+    Parameters:
+    tensor (torch.Tensor): The input tensor.
+
+    Returns:
+    np.ndarray: The converted NumPy array.
+    """
+    if tensor.is_cuda:
+        tensor = tensor.cpu()
+    return tensor.numpy()
+
 def reset_random_seeds(seed):
     # Let me know if I'm missing something here :) - MV
     os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"

@@ -4,7 +4,7 @@
 defaults:
   - data_defaults # Inherit data_defaults arguments
 dataset: 'mnist_sum' # Name of the dataset 
-train_file_name: 'train_sum_mnist_concepts_1_2_minority.npz'
+train_file_name: 'train_sum_mnist_concepts_2_1_minority_04.npz'
 val_file_name: 'test_mnist_sum_concepts.npz'
 test_file_name: 'test_mnist_sum_concepts.npz'
 num_classes: 7 # Number of classes of the target variable

@@ -107,7 +107,7 @@ class SCBM(nn.Module):
                 nn.MaxPool2d(2),
                 nn.Dropout(0.25),
                 nn.Flatten(),
-                nn.Linear(9216, n_features),
+                nn.Linear(128, n_features),
                 nn.ReLU(),
             )
 
@@ -151,7 +151,7 @@ class SCBM(nn.Module):
             fc2_y = nn.Linear(256, self.pred_dim)
             self.head = nn.Sequential(fc1_y, nn.ReLU(), fc2_y)
 
-    def forward(self, x, epoch, validation=False, return_full=False, c_true=None):
+    def forward(self, x, epoch, validation=False, c_true=None):
         """
         Perform a forward pass through the Stochastic Concept Bottleneck Model (SCBM).
 
@@ -214,6 +214,10 @@ class SCBM(nn.Module):
         )  # [batch_size,num_concepts,mcmc_size]
         c_mcmc_prob = self.act_c(c_mcmc_logit)
 
+        # if self.use_uncertainty:
+        #     mean_c_mcmc_prob = c_mcmc_logit.mean(dim=-1)
+        # c_uncertainty = c_mcmc_logit.var(dim=-1)
+            
         # For all MCMC samples simultaneously sample from Bernoulli
         if validation or self.training_mode == "sequential":
             # No backpropagation necessary
@@ -236,6 +240,7 @@ class SCBM(nn.Module):
 
         # MCMC loop for predicting label
         y_pred_probs_i = 0
+        y_mcmc_probs = []
         for i in range(self.num_monte_carlo):
             if self.concept_learning == "hard":
                 c_i = c_mcmc[:, :, i]
@@ -248,17 +253,24 @@ class SCBM(nn.Module):
                 y_pred_probs_i += torch.sigmoid(y_pred_logits_i)
             else:
                 y_pred_probs_i += torch.softmax(y_pred_logits_i, dim=1)
+            y_mcmc_probs.append(y_pred_logits_i)
+            
+        y_mcmc_probs = torch.stack(y_mcmc_probs, dim=2)
         y_pred_probs = y_pred_probs_i / self.num_monte_carlo
         if self.pred_dim == 1:
             y_pred_logits = torch.logit(y_pred_probs, eps=1e-6)
         else:
             y_pred_logits = torch.log(y_pred_probs + 1e-6)
 
-        # Return concept mu for interventions
-        if return_full:
-            return c_mcmc_prob, c_mu, c_triang_cov, y_pred_logits
-        else:
-            return c_mcmc_prob, c_triang_cov, y_pred_logits
+        output = {
+            "c_mcmc_prob": c_mcmc_prob,
+            "c_mu": c_mu,
+            "c_triang_cov": c_triang_cov,
+            "y_pred_logits": y_pred_logits,
+            "y_mcmc_probs": y_mcmc_probs,
+        }
+
+        return output
 
     def intervene(self, c_mcmc_probs, c_mcmc_logits):
         y_pred_probs_i = 0
@@ -376,7 +388,7 @@ class CBM(nn.Module):
                 nn.MaxPool2d(2),
                 nn.Dropout(0.25),
                 nn.Flatten(),
-                nn.Linear(9216, n_features),
+                nn.Linear(128, n_features),
                 nn.ReLU(),
             )
 
@@ -483,28 +495,31 @@ class CBM(nn.Module):
 
             if self.concept_learning in ("hard"):
                 # Hard CBM
-                if self.training_mode == "sequential" or validation:
-                    # Sample from Bernoulli M times, as we don't need to backprop
-                    c_prob_mcmc = c_prob.unsqueeze(-1).expand(
-                        -1, -1, self.num_monte_carlo
-                    )
-                    c = torch.bernoulli(c_prob_mcmc)
+                c = (c_prob > 0.5).float()
+            else:
+                c = c_prob
+                # if self.training_mode == "sequential" or validation:
+                #     # Sample from Bernoulli M times, as we don't need to backprop
+                #     c_prob_mcmc = c_prob.unsqueeze(-1).expand(
+                #         -1, -1, self.num_monte_carlo
+                #     )
+                #     c = torch.bernoulli(c_prob_mcmc)
 
-                # Relax bernoulli sampling with Gumbel Softmax to allow for backpropagation
-                elif self.training_mode == "joint":
-                    curr_temp = self.compute_temperature(epoch, device=c_prob.device)
-                    dist = RelaxedBernoulli(temperature=curr_temp, probs=c_prob)
-                    c_relaxed = dist.rsample([self.num_monte_carlo]).movedim(0, -1)
-                    if self.straight_through:
-                        # Straight-Through Gumbel Softmax
-                        c_hard = (c_relaxed > 0.5) * 1
-                        c = c_hard - c_relaxed.detach() + c_relaxed
-                    else:
-                        # Reparametrization trick.
-                        c = c_relaxed
+                # # Relax bernoulli sampling with Gumbel Softmax to allow for backpropagation
+                # elif self.training_mode == "joint":
+                #     curr_temp = self.compute_temperature(epoch, device=c_prob.device)
+                #     dist = RelaxedBernoulli(temperature=curr_temp, probs=c_prob)
+                #     c_relaxed = dist.rsample([self.num_monte_carlo]).movedim(0, -1)
+                #     if self.straight_through:
+                #         # Straight-Through Gumbel Softmax
+                #         c_hard = (c_relaxed > 0.5) * 1
+                #         c = c_hard - c_relaxed.detach() + c_relaxed
+                #     else:
+                #         # Reparametrization trick.
+                #         c = c_relaxed
 
-                else:
-                    raise NotImplementedError
+                # else:
+                #     raise NotImplementedError
 
         elif self.concept_learning == "autoregressive":
             # AR
@@ -599,21 +614,23 @@ class CBM(nn.Module):
             self.concept_learning == "autoregressive" and validation
         ):
             # Hard CBM or validation of AR. Takes MCMC samples.
-            # MCMC loop for predicting label
-            y_pred_probs_i = 0
-            for i in range(self.num_monte_carlo):
-                c_i = c[:, :, i]
-                y_pred_logits_i = self.head(c_i)
-                if self.pred_dim == 1:
-                    y_pred_probs_i += torch.sigmoid(y_pred_logits_i)
-                else:
-                    y_pred_probs_i += torch.softmax(y_pred_logits_i, dim=1)
-            y_pred_probs = y_pred_probs_i / self.num_monte_carlo
+            y_pred_logits = self.head(c)
 
-            if self.pred_dim == 1:
-                y_pred_logits = torch.logit(y_pred_probs, eps=1e-6)
-            else:
-                y_pred_logits = torch.log(y_pred_probs + 1e-6)
+            # # MCMC loop for predicting label
+            # y_pred_probs_i = 0
+            # for i in range(self.num_monte_carlo):
+            #     c_i = c[:, :, i]
+            #     y_pred_logits_i = self.head(c_i)
+            #     if self.pred_dim == 1:
+            #         y_pred_probs_i += torch.sigmoid(y_pred_logits_i)
+            #     else:
+            #         y_pred_probs_i += torch.softmax(y_pred_logits_i, dim=1)
+            # y_pred_probs = y_pred_probs_i / self.num_monte_carlo
+
+            # if self.pred_dim == 1:
+            #     y_pred_logits = torch.logit(y_pred_probs, eps=1e-6)
+            # else:
+            #     y_pred_logits = torch.log(y_pred_probs + 1e-6)
 
         elif self.concept_learning == "soft":
             # Soft CBM
@@ -629,7 +646,12 @@ class CBM(nn.Module):
             # If CEM: c are predicte embeddings, if AR: c are ground truth concepts
             y_pred_logits = self.head(c)
 
-        return c_prob, y_pred_logits, c
+        output = {
+            "c_prob": c_prob,
+            "y_pred_logits": y_pred_logits,
+            "c": c,
+        }
+        return output
 
     def intervene(
         self,

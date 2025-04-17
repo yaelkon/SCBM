@@ -115,17 +115,17 @@ if __name__ == "__main__":
     save_path = "/home/yk449/datasets/mnist/mnist_sum/"
     root_path = "/home/yk449/datasets/mnist/"
     
-    create_set = 'test'
+    create_set = 'train'
     if create_set == 'train':
         print("Creating training dataset")
         n_samples = 57000
         required_distribution = np.array([
             [3750, 3750, 3750, 3750],
-            [3750, 3750, 750, 3750],
             [3750, 3750, 3750, 3750],
+            [3750, 1500, 3750, 3750],
             [3750, 3750, 3750, 3750]
         ])
-        data_filename = "mnist_sum_concepts_1_2_minority.npz"
+        data_filename = "sum_mnist_concepts_2_1_minority_04.npz"
         create_mnist_sum_dataset(
             digits_range=digits_range, 
             root_path=root_path, 

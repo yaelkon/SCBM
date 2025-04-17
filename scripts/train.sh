@@ -10,6 +10,6 @@
 source ~/.bashrc
 conda deactivate
 conda activate scbm
-cd /path/to/scbm/directory
+cd /home/yk449/python_projects/SCBM
 
 python -u train.py "$@"

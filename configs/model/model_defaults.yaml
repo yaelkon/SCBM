@@ -1,22 +1,23 @@
 # Model
 model_directory: './pretrained_networks/' # Directory of pretrained models
+pretrained_model_path: './experiments/scbm/mnist_sum/20250410-164342_scbm_simpleCNN/model.pth' # A full end-to-end pretrained model to load. If None, no pretrained model is loaded
 head_arch: 'linear' # Linear or nonlinear classifier ['linear', 'nonlinear']
 alpha: 1.0        # Weight of concept loss in joint training
-encoder_arch: 'resnet18' # Encoder architecture ['resnet18', 'simple_CNN', 'FCNN']
+encoder_arch: 'simple_CNN' # Encoder architecture ['resnet18', 'simple_CNN', 'FCNN']
 
 # Training
-training_mode: 'joint' # Optimization method: ['joint', 'sequential', 'independent']
-validate_per_epoch: 30 # Periodicity to evaluate the model
+training_mode: 'sequential' # Optimization method: ['joint', 'sequential', 'independent']
+validate_per_epoch: 20 # Periodicity to evaluate the model
 learning_rate: 0.0001 # Learning rate in the optimization
 optimizer: 'adam' # Optimizer: ['sgd','adam']
-decrease_every: 150 # Frequency of the learning rate decrease
+decrease_every: 50 # Frequency of the learning rate decrease
 lr_divisor: 2 # Rate of the learning rate decrease
 weight_decay: 0 # Weight decay
 train_batch_size: 64 # Batch size for the training set
 val_batch_size: 64 # Batch size for the validation and test sets
 
-j_epochs: 300 # Number of epochs for joint training
-c_epochs: 200 # Number of epochs for first stage training in sequential & independent training
+j_epochs: 200 # Number of epochs for joint training
+c_epochs: 50 # Number of epochs for first stage training in sequential & independent training
 t_epochs: 100 # Number of epochs for second stage training in sequential & independent training
 
 # MCMC

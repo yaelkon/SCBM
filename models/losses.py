@@ -22,7 +22,6 @@ def create_loss(config):
     if config.model.model == "cbm":
         return CBLoss(
             num_classes=config.data.num_classes,
-            reduction="mean",
             alpha=config.model.alpha,
             config=config.model,
         )
@@ -44,7 +43,7 @@ class CBLoss(nn.Module):
     def __init__(
         self,
         num_classes: Optional[int] = 2,
-        reduction: str = "mean",
+        # reduction: str = "mean",
         alpha: float = 1,
         config: dict = {},
     ) -> None:
@@ -60,7 +59,7 @@ class CBLoss(nn.Module):
         super(CBLoss, self).__init__()
         self.num_classes = num_classes
         self.alpha = alpha if config.training_mode == "joint" else 1.0
-        self.reduction = reduction
+        # self.reduction = reduction
 
     def forward(
         self,
@@ -86,29 +85,41 @@ class CBLoss(nn.Module):
 
         assert torch.all((concepts_true == 0) | (concepts_true == 1))
 
+        per_concept_loss = []
         for concept_idx in range(concepts_true.shape[1]):
-            c_loss = F.binary_cross_entropy(
+            per_c_loss = F.binary_cross_entropy(
                 concepts_pred_probs[:, concept_idx],
                 concepts_true[:, concept_idx].float(),
-                reduction=self.reduction,
+                reduction="none",
             )
+            per_concept_loss.append(per_c_loss)
+            c_loss = per_c_loss.mean()
             concepts_loss += c_loss
         concepts_loss = self.alpha * concepts_loss
+        per_concept_loss = torch.stack(per_concept_loss, dim=1)
 
         if self.num_classes == 2:
             # Logits to probs
             target_pred_probs = nn.Sigmoid()(target_pred_logits.squeeze(1))
-            target_loss = F.binary_cross_entropy(
-                target_pred_probs, target_true.float(), reduction=self.reduction
+            per_sample_target_loss = F.binary_cross_entropy(
+                target_pred_probs, target_true.float(), reduction="none"
             )
         else:
-            target_loss = F.cross_entropy(
-                target_pred_logits, target_true.long(), reduction=self.reduction
+            per_sample_target_loss = F.cross_entropy(
+                target_pred_logits, target_true.long(), reduction="none"
             )
-
+        target_loss = per_sample_target_loss.mean()
         total_loss = target_loss + concepts_loss
 
-        return target_loss, concepts_loss, total_loss
+        loss_dict = {
+            "target_loss": target_loss,
+            "concepts_loss": concepts_loss,
+            "total_loss": total_loss,
+            "per_concept_loss": per_concept_loss,
+            "per_sample_target_loss": per_sample_target_loss,
+        }
+        # per_concept_loss, per_sample_target_loss = None, None
+        return loss_dict
 
 
 class SCBLoss(nn.Module):
@@ -165,6 +176,7 @@ class SCBLoss(nn.Module):
         bce_loss = F.binary_cross_entropy(
             concepts_mcmc_probs, concepts_true_expanded.float(), reduction="none"
         )  # [B,C,MCMC]
+        per_concept_loss = bce_loss.mean(dim=2)  # [B,C]
         intermediate_concepts_loss = -torch.sum(bce_loss, dim=1)  # [B,MCMC]
         mcmc_loss = -torch.logsumexp(
             intermediate_concepts_loss, dim=1
@@ -174,13 +186,15 @@ class SCBLoss(nn.Module):
         if self.num_classes == 2:
             # Logits to probs
             target_pred_probs = nn.Sigmoid()(target_pred_logits.squeeze(1))
-            target_loss = F.binary_cross_entropy(
-                target_pred_probs, target_true.float(), reduction="mean"
+            per_sample_target_loss = F.binary_cross_entropy(
+                target_pred_probs, target_true.float(), reduction="none"
             )
+            target_loss = per_sample_target_loss.mean()
         else:
-            target_loss = F.cross_entropy(
-                target_pred_logits, target_true.long(), reduction="mean"
+            per_sample_target_loss = F.cross_entropy(
+                target_pred_logits, target_true.long(), reduction="none"
             )
+            target_loss = per_sample_target_loss.mean()
 
         # Add precision loss
         if self.reg_precision == "l1":
@@ -206,4 +220,12 @@ class SCBLoss(nn.Module):
 
         total_loss = target_loss + concepts_loss + prec_loss
 
-        return target_loss, concepts_loss, prec_loss, total_loss
+        loss_dict = {
+            "target_loss": target_loss,
+            "concepts_loss": concepts_loss,
+            "prec_loss": prec_loss,
+            "total_loss": total_loss,
+            "per_concept_loss": per_concept_loss,
+            "per_sample_target_loss": per_sample_target_loss,
+        }
+        return loss_dict
