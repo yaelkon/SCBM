@@ -5,7 +5,7 @@ import torch
 import wandb
 
 from tqdm import tqdm
-from utils.plotting import compute_and_plot_heatmap, plot_subpopulations_stats
+from utils.plotting import compute_and_plot_heatmap, SubpoopulationPlotter
 
 
 def train_one_epoch_scbm(
@@ -313,12 +313,17 @@ def validate_one_epoch_scbm(
     # Calculate and log metrics
     metrics_dict = metrics.compute(validation=True, config=config)
     if population_metrics is not None:
+        # Compute and plot subpopulation statistics
         population_metrics_dict = population_metrics.compute(validation=True)
-        plot_subpopulations_stats(
+
+        subpop_plotter = SubpoopulationPlotter(
             population_metrics=population_metrics_dict,
-            save_path=config.logging.save_dir,
-            plot_uncertainty=True
+            subpopulations_str2idx=loader.dataset.subpopulations_dict,
+            log_scale=True,
+            save_path=config.experiment_dir if not config.logging.debug_mode else "",
         )
+
+        subpop_plotter.plot(plot_uncertainty=True)
 
     if not test:
         wandb.log({f"validation/{k}": v for k, v in metrics_dict.items()})

@@ -162,238 +162,301 @@ def compute_and_plot_heatmap(
     plot_heatmap(**args)
 
 
-def plot_subpopulation_losses(population_metrics, save_path=''):
-    """
-    Plots a bar chart of subpopulation losses for target_loss and total_loss.
+class SubpoopulationPlotter:
+    def __init__(self, population_metrics, subpopulations_str2idx, save_path='./', log_scale=False):
+        self.population_metrics = population_metrics
+        self.subpopulations_str2idx = subpopulations_str2idx
+        self.log_scale = log_scale
 
-    Args:
-        population_metrics (dict): A dictionary containing:
-            - "target_loss" (list or np.ndarray): Loss values for each subpopulation.
-            - "total_loss" (list or np.ndarray): Loss values for each subpopulation.
-        save_path (str): Path to save the plot. If empty, the plot is shown instead.
-    """
-    n_subpopulations = len(population_metrics["n_samples_per_population"])
-    x = np.arange(n_subpopulations)  # Subpopulation indices
+        if save_path == "":
+            save_path = None
+        else:
+            save_path = os.path.join(save_path, "plots")
+            os.makedirs(save_path, exist_ok=True)
+        self.save_path = save_path
+        
+    def plot(self, plot_uncertainty=False):
+        self.plot_subpopulation_losses()
+        self.plot_subpopulation_accuracies()
+        self.plot_concept_accuracies()
+        self.plot_concept_loss()
+        if plot_uncertainty:
+            self.plot_concept_uncertainty()
+            self.plot_concept_prob_vs_uncertainty()
+    
+    def plot_subpopulation_losses(self):
+        
+        """
+        Plots a bar chart of subpopulation losses for target_loss and total_loss.
 
-    # Bar width
-    bar_width = 0.4
+        Args:
+            population_metrics (dict): A dictionary containing:
+                - "target_loss" (list or np.ndarray): Loss values for each subpopulation.
+                - "total_loss" (list or np.ndarray): Loss values for each subpopulation.
+            save_path (str): Path to save the plot. If empty, the plot is shown instead.
+        """
+        n_subpopulations = len(self.population_metrics["n_samples_per_population"])
+        x = np.arange(n_subpopulations)  # Subpopulation indices
 
-    # Create a figure
-    fig, ax = plt.subplots(figsize=(20, 10))
+        # Bar width
+        bar_width = 0.4
 
-    # Plot target_loss
-    ax.bar(
-        x - bar_width / 2,  # Offset for target_loss
-        population_metrics["target_loss"],
-        width=bar_width,
-        label="Target Loss",
-        color="C0",  # Consistent color for target_loss
-    )
+        # Create a figure
+        fig, ax = plt.subplots(figsize=(20, 10))
 
-    # Plot total_loss
-    ax.bar(
-        x + bar_width / 2,  # Offset for total_loss
-        population_metrics["total_loss"],
-        width=bar_width,
-        label="Total Loss",
-        color="C1",  # Consistent color for total_loss
-    )
-
-    # Set labels, title, and legend
-    ax.set_xlabel("Subpopulation Index", fontsize=14)
-    ax.set_ylabel("Loss Value", fontsize=14)
-    ax.set_title("Subpopulation Losses", fontsize=16)
-    ax.set_xticks(x)
-    ax.set_xticklabels([f"Subpop {i}" for i in range(n_subpopulations)], fontsize=12)
-    ax.legend(fontsize=12)
-
-    # Save or show the plot
-    if save_path:
-        plt.savefig(save_path + '/subpopulation_losses.png', format="png")
-
-    plt.close()
-    # wandb.log({"subpopulation_losses": wandb.Image(Image.open(buf))})
-
-def plot_subpopulation_accuracies(population_metrics, save_path=''):
-    """
-    Plots a bar chart of subpopulation losses for target_loss and total_loss.
-
-    Args:
-        population_metrics (dict): A dictionary containing:
-            - "target_loss" (list or np.ndarray): Loss values for each subpopulation.
-            - "total_loss" (list or np.ndarray): Loss values for each subpopulation.
-        save_path (str): Path to save the plot. If empty, the plot is shown instead.
-    """
-    n_subpopulations = len(population_metrics["n_samples_per_population"])
-    x = np.arange(n_subpopulations)  # Subpopulation indices
-
-    # Bar width
-    bar_width = 0.4
-
-    # Create a figure
-    fig, ax = plt.subplots(figsize=(20, 10))
-
-    # Plot target_loss
-    ax.bar(
-        x - bar_width / 2,  # Offset for target_loss
-        population_metrics["task_accuracy"],
-        width=bar_width,
-        label="Task Acc",
-        color="C0",  # Consistent color for target_loss
-    )
-
-    # Plot total_loss
-    ax.bar(
-        x + bar_width / 2,  # Offset for total_loss
-        population_metrics["complete_concept_accuracy"],
-        width=bar_width,
-        label="Complete Concept Acc",
-        color="C1",  # Consistent color for total_loss
-    )
-
-    # Set labels, title, and legend
-    ax.set_xlabel("Subpopulation Index", fontsize=14)
-    ax.set_ylabel("Task Accuracy", fontsize=14)
-    ax.set_title("Task Accuracy Across Subpopulations", fontsize=16)
-    ax.set_xticks(x)
-    ax.set_xticklabels([f"Subpop {i}" for i in range(n_subpopulations)], fontsize=12)
-    ax.legend(fontsize=12)
-
-    # Save or show the plot
-    if save_path:
-        plt.savefig(save_path + '/subpopulation_accuracies.png', format="png")
-
-def plot_concept_accuracies(concept_accuracy, save_path=''):
-    """
-    Plots a histogram of concept accuracies for each subpopulation.
-
-    Args:
-        concept_accuracy (np.ndarray): A 2D array of shape (n_populations, n_concepts),
-                                        where each entry represents the accuracy of a concept
-                                        in a specific subpopulation.
-        save_path (str): Path to save the plot. If empty, the plot is shown instead.
-    """
-    n_populations, n_concepts = concept_accuracy.shape
-
-    # Create a figure
-    fig, ax = plt.subplots(figsize=(20, 10))
-
-    # Define bar width and positions
-    bar_width = 0.8 / n_concepts  # Divide the bar width among concepts
-    x = np.arange(n_populations)  # Subpopulation indices
-
-    # Plot bars for each concept
-    for concept_idx in range(n_concepts):
+        # Plot target_loss
         ax.bar(
-            x + concept_idx * bar_width,  # Offset each concept's bars
-            concept_accuracy[:, concept_idx],  # Accuracy values for the concept
+            x - bar_width / 2,  # Offset for target_loss
+            self.population_metrics["target_loss"],
             width=bar_width,
-            label=f"Concept {concept_idx}",
+            label="Target Loss",
+            color="C0",  # Consistent color for target_loss
         )
 
-    # Set labels, title, and legend
-    ax.set_xlabel("Subpopulation Index", fontsize=14)
-    ax.set_ylabel("Accuracy", fontsize=14)
-    ax.set_title("Concept Accuracies Across Subpopulations", fontsize=16)
-    ax.set_xticks(x + bar_width * (n_concepts - 1) / 2)  # Center the ticks
-    ax.set_xticklabels([f"Subpop {i}" for i in range(n_populations)], fontsize=12)
-    ax.legend(title="Concepts", fontsize=12)
-
-    # Save or show the plot
-    if save_path:
-        plt.savefig(save_path + '/concept_accuracy.png', format="png")
-
-def plot_concept_loss(concept_loss, save_path=''):
-    """
-    Plots a histogram of concept accuracies for each subpopulation.
-
-    Args:
-        concept_accuracy (np.ndarray): A 2D array of shape (n_populations, n_concepts),
-                                        where each entry represents the accuracy of a concept
-                                        in a specific subpopulation.
-        save_path (str): Path to save the plot. If empty, the plot is shown instead.
-    """
-    n_populations, n_concepts = concept_loss.shape
-
-    # Create a figure
-    fig, ax = plt.subplots(figsize=(20, 10))
-
-    # Define bar width and positions
-    bar_width = 0.8 / n_concepts  # Divide the bar width among concepts
-    x = np.arange(n_populations)  # Subpopulation indices
-
-    # Plot bars for each concept
-    for concept_idx in range(n_concepts):
+        # Plot total_loss
         ax.bar(
-            x + concept_idx * bar_width,  # Offset each concept's bars
-            concept_loss[:, concept_idx],  # Accuracy values for the concept
+            x + bar_width / 2,  # Offset for total_loss
+            self.population_metrics["total_loss"],
             width=bar_width,
-            label=f"Concept {concept_idx}",
+            label="Total Loss",
+            color="C1",  # Consistent color for total_loss
         )
 
-    # Set labels, title, and legend
-    ax.set_xlabel("Subpopulation Index", fontsize=14)
-    ax.set_ylabel("Concept Loss", fontsize=14)
-    ax.set_title("Concept Loss Across Subpopulations", fontsize=16)
-    ax.set_xticks(x + bar_width * (n_concepts - 1) / 2)  # Center the ticks
-    ax.set_xticklabels([f"Subpop {i}" for i in range(n_populations)], fontsize=12)
-    ax.legend(title="Concepts", fontsize=12)
+        # Set labels, title, and legend
+        ax.set_xlabel("Subpopulation Index", fontsize=14)
+        ax.set_ylabel("Loss Value", fontsize=14)
+        ax.set_title("Subpopulation Losses", fontsize=16)
+        ax.set_xticks(x)
+        ax.set_xticklabels(self.subpopulations_str2idx.keys(), fontsize=12)
+        ax.legend(fontsize=12)
 
-    # Save or show the plot
-    if save_path:
-        plt.savefig(save_path + '/concept_loss.png', format="png")
+        # Save or show the plot
+        if self.save_path is not None:
+            plt.savefig(self.save_path + '/subpopulation_losses.png', format="png")
 
-def plot_concept_uncertainty(concept_uncertainty, save_path=''):
-    """
-    Plots a histogram of concept accuracies for each subpopulation.
+        wandb.log({"val/subpopulation_losses": wandb.Image(fig)})
+        plt.close()
 
-    Args:
-        concept_accuracy (np.ndarray): A 2D array of shape (n_populations, n_concepts),
-                                        where each entry represents the accuracy of a concept
-                                        in a specific subpopulation.
-        save_path (str): Path to save the plot. If empty, the plot is shown instead.
-    """
-    n_populations, n_concepts = concept_uncertainty.shape
+    def plot_subpopulation_accuracies(self):
+        """
+        Plots a bar chart of subpopulation losses for target_loss and total_loss.
 
-    # Create a figure
-    fig, ax = plt.subplots(figsize=(20, 10))
+        Args:
+            population_metrics (dict): A dictionary containing:
+                - "target_loss" (list or np.ndarray): Loss values for each subpopulation.
+                - "total_loss" (list or np.ndarray): Loss values for each subpopulation.
+            save_path (str): Path to save the plot. If empty, the plot is shown instead.
+        """
+        n_subpopulations = len(self.population_metrics["n_samples_per_population"])
+        x = np.arange(n_subpopulations)  # Subpopulation indices
 
-    # Define bar width and positions
-    bar_width = 0.8 / n_concepts  # Divide the bar width among concepts
-    x = np.arange(n_populations)  # Subpopulation indices
+        # Bar width
+        bar_width = 0.4
 
-    # Plot bars for each concept
-    for concept_idx in range(n_concepts):
+        # Create a figure
+        fig, ax = plt.subplots(figsize=(20, 10))
+
+        # Plot target_loss
         ax.bar(
-            x + concept_idx * bar_width,  # Offset each concept's bars
-            concept_uncertainty[:, concept_idx],  # Accuracy values for the concept
+            x - bar_width / 2,  # Offset for target_loss
+            self.population_metrics["task_accuracy"],
             width=bar_width,
-            label=f"Concept {concept_idx}",
+            label="Task Acc",
+            color="C0",  # Consistent color for target_loss
         )
 
-    # Set labels, title, and legend
-    ax.set_xlabel("Subpopulation Index", fontsize=14)
-    ax.set_ylabel("Uncertainty", fontsize=14)
-    ax.set_title("Concept Uncertainty Across Subpopulations", fontsize=16)
-    ax.set_xticks(x + bar_width * (n_concepts - 1) / 2)  # Center the ticks
-    ax.set_xticklabels([f"Subpop {i}" for i in range(n_populations)], fontsize=12)
-    ax.legend(title="Concepts", fontsize=12)
+        # Plot total_loss
+        ax.bar(
+            x + bar_width / 2,  # Offset for total_loss
+            self.population_metrics["complete_concept_accuracy"],
+            width=bar_width,
+            label="Complete Concept Acc",
+            color="C1",  # Consistent color for total_loss
+        )
 
-    # Save or show the plot
-    if save_path:
-        plt.savefig(save_path + '/concept_uncertainty.png', format="png")
+        # Set labels, title, and legend
+        ax.set_xlabel("Subpopulation Index", fontsize=14)
+        ax.set_ylabel("Task Accuracy", fontsize=14)
+        ax.set_title("Task Accuracy Across Subpopulations", fontsize=16)
+        ax.set_xticks(x)
+        ax.set_xticklabels(self.subpopulations_str2idx.keys(), fontsize=12)
+        ax.legend(fontsize=12)
 
-def plot_subpopulations_stats(
-    population_metrics,
-    save_path='./',
-    plot_uncertainty=False,
-):  
-    save_path = os.path.join(save_path, "plots")
-    os.makedirs(save_path, exist_ok=True)
+        # Save or show the plot
+        if self.save_path is not None:
+            plt.savefig(self.save_path + '/subpopulation_accuracies.png', format="png")
+        wandb.log({"val/subpopulation_accuracies": wandb.Image(fig)})
+        plt.close()
 
-    plot_subpopulation_losses(population_metrics, save_path)
-    plot_subpopulation_accuracies(population_metrics, save_path)
-    plot_concept_accuracies(population_metrics["concept_accuracy"], save_path)
-    plot_concept_loss(population_metrics["concept_loss"], save_path)
-    if plot_uncertainty:
-        plot_concept_uncertainty(population_metrics["concept_uncertainty"], save_path)
+    def plot_concept_accuracies(self):
+        """
+        Plots a histogram of concept accuracies for each subpopulation.
+
+        Args:
+            concept_accuracy (np.ndarray): A 2D array of shape (n_populations, n_concepts),
+                                            where each entry represents the accuracy of a concept
+                                            in a specific subpopulation.
+            save_path (str): Path to save the plot. If empty, the plot is shown instead.
+        """
+        concept_accuracy = self.population_metrics["concept_accuracy"]
+        n_populations, n_concepts = concept_accuracy.shape
+
+        # Create a figure
+        fig, ax = plt.subplots(figsize=(20, 10))
+
+        # Define bar width and positions
+        bar_width = 0.8 / n_concepts  # Divide the bar width among concepts
+        x = np.arange(n_populations)  # Subpopulation indices
+
+        # Plot bars for each concept
+        for concept_idx in range(n_concepts):
+            ax.bar(
+                x + concept_idx * bar_width,  # Offset each concept's bars
+                concept_accuracy[:, concept_idx],  # Accuracy values for the concept
+                width=bar_width,
+                label=f"Concept {concept_idx}",
+            )
+
+        # Set labels, title, and legend
+        ax.set_xlabel("Subpopulation Index", fontsize=14)
+        ax.set_ylabel("Accuracy", fontsize=14)
+        ax.set_title("Concept Accuracies Across Subpopulations", fontsize=16)
+        ax.set_xticks(x + bar_width * (n_concepts - 1) / 2)  # Center the ticks
+        ax.set_xticklabels(self.subpopulations_str2idx.keys(), fontsize=12)
+        ax.legend(title="Concepts", fontsize=12)
+
+        # Save or show the plot
+        if self.save_path is not None:
+            plt.savefig(self.save_path + '/concept_accuracy.png', format="png")
+        wandb.log({"val/concept_accuracy": wandb.Image(fig)})
+        plt.close()
+
+    def plot_concept_loss(self):
+        """
+        Plots a histogram of concept accuracies for each subpopulation.
+
+        Args:
+            concept_accuracy (np.ndarray): A 2D array of shape (n_populations, n_concepts),
+                                            where each entry represents the accuracy of a concept
+                                            in a specific subpopulation.
+            save_path (str): Path to save the plot. If empty, the plot is shown instead.
+        """
+        concept_loss = self.population_metrics["concept_loss"]
+        n_populations, n_concepts = concept_loss.shape
+
+        # Create a figure
+        fig, ax = plt.subplots(figsize=(20, 10))
+
+        # Define bar width and positions
+        bar_width = 0.8 / n_concepts  # Divide the bar width among concepts
+        x = np.arange(n_populations)  # Subpopulation indices
+
+        # Plot bars for each concept
+        for concept_idx in range(n_concepts):
+            ax.bar(
+                x + concept_idx * bar_width,  # Offset each concept's bars
+                concept_loss[:, concept_idx],  # Accuracy values for the concept
+                width=bar_width,
+                label=f"Concept {concept_idx}",
+            )
+
+        # Set labels, title, and legend
+        ax.set_xlabel("Subpopulation Index", fontsize=14)
+        ax.set_ylabel("Concept Loss", fontsize=14)
+        ax.set_title("Concept Loss Across Subpopulations", fontsize=16)
+        ax.set_xticks(x + bar_width * (n_concepts - 1) / 2)  # Center the ticks
+        ax.set_xticklabels(self.subpopulations_str2idx.keys(), fontsize=12)
+        ax.legend(title="Concepts", fontsize=12)
+
+        # Save or show the plot
+        if self.save_path is not None:
+            plt.savefig(self.save_path + '/concept_loss.png', format="png")
+        wandb.log({"val/concept_loss": wandb.Image(fig)})
+        plt.close()
+
+    def plot_concept_uncertainty(self):
+        """
+        Plots a histogram of concept accuracies for each subpopulation.
+
+        Args:
+            concept_accuracy (np.ndarray): A 2D array of shape (n_populations, n_concepts),
+                                            where each entry represents the accuracy of a concept
+                                            in a specific subpopulation.
+            save_path (str): Path to save the plot. If empty, the plot is shown instead.
+        """
+        concept_uncertainty = self.population_metrics["concept_uncertainty"]
+        n_populations, n_concepts = concept_uncertainty.shape
+
+        # Create a figure
+        fig, ax = plt.subplots(figsize=(20, 10))
+
+        # Define bar width and positions
+        bar_width = 0.8 / n_concepts  # Divide the bar width among concepts
+        x = np.arange(n_populations)  # Subpopulation indices
+
+        # Plot bars for each concept
+        for concept_idx in range(n_concepts):
+            ax.bar(
+                x + concept_idx * bar_width,  # Offset each concept's bars
+                concept_uncertainty[:, concept_idx],  # Accuracy values for the concept
+                width=bar_width,
+                label=f"Concept {concept_idx}",
+            )
+
+        # Set labels, title, and legend
+        ax.set_xlabel("Subpopulation Index", fontsize=14)
+        ax.set_ylabel("Uncertainty", fontsize=14)
+        ax.set_title("Concept Uncertainty Across Subpopulations", fontsize=16)
+        ax.set_xticks(x + bar_width * (n_concepts - 1) / 2)  # Center the ticks
+        ax.set_xticklabels(self.subpopulations_str2idx.keys(), fontsize=12)
+        ax.legend(title="Concepts", fontsize=12)
+
+        # Save or show the plot
+        if self.save_path is not None:
+            plt.savefig(self.save_path + '/concept_uncertainty.png', format="png")
+        wandb.log({"val/concept_uncertainty": wandb.Image(fig)})
+        plt.close()
+
+    def plot_concept_prob_vs_uncertainty(self):    
+        """
+        Plots concept_prob vs concept_uncertainty for each concept.
+
+        Args:
+            concept_prob (np.ndarray): A 2D array of shape (n_samples, n_concepts),
+                                    where each entry represents the probability of a concept.
+            concept_uncertainty (np.ndarray): A 2D array of shape (n_samples, n_concepts),
+                                            where each entry represents the uncertainty of a concept.
+            save_path (str): Path to save the plot. If empty, the plot is shown instead.
+        """    
+        concept_prob = self.population_metrics["concept_prob"]
+        concept_uncertainty = self.population_metrics["concept_uncertainty"]
+        n_samples, n_concepts = concept_prob.shape
+
+        # Create a figure
+        fig, ax = plt.subplots(figsize=(20, 10))
+
+        for concept_idx in range(n_concepts):
+            # Sort by uncertainty in descending order
+            sorted_indices = np.argsort(-concept_uncertainty[:, concept_idx])
+            sorted_prob = concept_prob[sorted_indices, concept_idx]
+            sorted_uncertainty = concept_uncertainty[sorted_indices, concept_idx]
+
+            # Plot concept_prob vs concept_uncertainty
+            ax.plot(
+                sorted_uncertainty,
+                sorted_prob,
+                label=f"Concept {concept_idx}",
+                marker="o",
+            )
+
+        # Set labels, title, and legend
+        ax.set_xlabel("Concept Uncertainty", fontsize=14)
+        ax.set_ylabel("Concept Probability", fontsize=14)
+        ax.set_title("Concept Probability vs Uncertainty", fontsize=16)
+        ax.legend(title="Concepts", fontsize=12)
+
+        # Save or show the plot
+        if self.save_path is not None:
+            plt.savefig(self.save_path + '/concept_prob_vs_uncertainty.png', format="png")
+        wandb.log({"val/concept_prob_vs_uncertainty": wandb.Image(fig)})
+        plt.close()    
