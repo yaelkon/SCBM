@@ -300,6 +300,7 @@ def validate_one_epoch_scbm(
                 prec_loss=prec_loss,
             )
             if population_metrics is not None:
+                subpopulation_indices = batch["extra_dict"]["population_idx"].to(device)
                 population_metrics.update(
                     target_loss=losses_dict["per_sample_target_loss"],
                     concepts_loss=losses_dict["per_concept_loss"],
@@ -308,6 +309,7 @@ def validate_one_epoch_scbm(
                     c_true=concepts_true,
                     c_pred_probs=concepts_pred_probs,
                     c_mcmc_pred_probs=concepts_mcmc_probs,
+                    subpopulation_indices=subpopulation_indices,
                     cov_mat=cov,
                 )
     # Calculate and log metrics

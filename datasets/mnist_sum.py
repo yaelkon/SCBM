@@ -13,17 +13,20 @@ def get_MNIST_SUM_dataset(config: DictConfig):
         "train": MNIST_SUM_Dataset(
             root=datapath,
             train=True,
-            file_name=config.get("train_file_name")
+            file_name=config.get("train_file_name"),
+            subpopulations=config.get("subpopulations")
         ),
         "val": MNIST_SUM_Dataset(
             root=datapath,
             train=False,
-            file_name=config.get("val_file_name")
+            file_name=config.get("val_file_name"),
+            subpopulations=config.get("subpopulations")
         ),
         "test": MNIST_SUM_Dataset(
             root=datapath,
             train=False,
-            file_name=config.get("test_file_name")
+            file_name=config.get("test_file_name"),
+            subpopulations=config.get("subpopulations")
         ),
     }
 
@@ -60,7 +63,7 @@ def from_concept_to_population_idx(concepts: torch.Tensor):
 
 
 class MNIST_SUM_Dataset(Dataset):
-    def __init__(self, root, train=True, file_name=None):
+    def __init__(self, root, train=True, file_name=None, subpopulations=None):
 
         self.stage = "train" if train else "test"
         self.root = root
@@ -73,29 +76,74 @@ class MNIST_SUM_Dataset(Dataset):
         self.imgs = data["imgs"]
         self.labels = data["labels"]
         self.concepts = data["concepts"]
+        self.attributes = None
+        if "attributes" in data:
+            self.attributes = data["attributes"]
 
         self.transforms = transforms.Compose([
             transforms.ToTensor(),
             transforms.Normalize((0.5,), (0.5,)),
-            transforms.Lambda(lambda x: x.repeat(3, 1, 1)),
+            # transforms.Lambda(lambda x: x.repeat(3, 1, 1)),
         ])
 
+        self.subpopulations_dict = self._create_subpopulations(subpopulations)
+    
+    def _create_subpopulations(self, subpopulations: List[tuple]) -> dict:
+        """
+        Create subpopulations based on the provided subpopulations dictionary.
+        """
+        if subpopulations is None:
+            return None
+
+        subpopulations_dict = {}
+        for i, s in enumerate(subpopulations):
+            s = tuple(s)
+            subpopulations_dict[s] = i
+
+        return subpopulations_dict
+    
+    def _get_subpopulation_idx(self, concepts: torch.Tensor, attributes: List[str]) -> int:
+        """
+        Get the subpopulation index based on the concept and attributes.
+        """
+        if self.subpopulations_dict is None:
+            return 0
+
+        # Extract subgroup representation from concept
+        one_side_length = len(concepts) // 2
+        left_side_digit, right_side_digit = np.where(concepts[:one_side_length] == 1)[0][0], np.where(concepts[one_side_length:] == 1)[0][0]
+        digits_tuple = (left_side_digit, right_side_digit)
+
+        # Create a tuple of the concept and attributes
+        for a in attributes:
+            if a == 'none':
+                continue
+            digits_tuple += (a,)
+        
+        subpop_idx = self.subpopulations_dict[digits_tuple]
+        return subpop_idx
+    
     def __getitem__(self, idx):
         # Load the MNIST dataset from the specified directory
-        try: 
+        try:
             x = self.transforms(self.imgs[idx])
             y = self.labels[idx]
             c = self.concepts[idx]
         except Exception as e:
             print(f"Error loading data from datafile {self.root + self.file_name} at index {idx}: {e}")
-            raise
+            raise 
+        y = self.labels[idx]
+        c = self.concepts[idx]
+        a = self.attributes[idx] if self.attributes is not None else None
+        subpop_idx = self._get_subpopulation_idx(c, [a])
 
-        # Return a tuple of images, labels, and protected attributes
+        # Return a tuple of images, labels, and extra_dict 
         return {
             "img_code": idx,
             "labels": y,
             "features": x,
             "concepts": c,
+            "extra_dict": {"attributes": a, "population_idx": subpop_idx}
         }
 
     def __len__(self):

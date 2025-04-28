@@ -73,12 +73,13 @@ def test(config: DictConfig):
 
     metrics = Custom_Metrics(config.data.num_concepts, device).to(device)
 
-    population_metrics = Population_Metrics(
-        n_concepts=config.data.num_concepts,
-        n_populations=config.data.num_populations,
-        populationIdxTrans_func=from_concept_to_population_idx,
-        device=device,
-    ).to(device)
+    population_metrics = None
+    if config.data.get("subpopulations", None) is not None:
+        population_metrics = Population_Metrics(
+            n_concepts=config.data.num_concepts,
+            n_populations=len(config.data.subpopulations),
+            device=device,
+        ).to(device)
 
     if config.model.model == "cbm":
         validate_one_epoch = validate_one_epoch_cbm

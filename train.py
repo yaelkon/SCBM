@@ -137,6 +137,13 @@ def train(config):
     loss_fn = create_loss(config)
 
     metrics = Custom_Metrics(config.data.num_concepts, device).to(device)
+    population_metrics = None
+    if config.data.get("subpopulations", None) is not None:
+        population_metrics = Population_Metrics(
+            n_concepts=config.data.num_concepts,
+            n_populations=len(config.data.subpopulations),
+            device=device,
+        ).to(device)
 
     # ---------------------------------
     #            Training

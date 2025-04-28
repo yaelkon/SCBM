@@ -17,15 +17,13 @@ class Population_Metrics(Metric):
             self, 
             n_populations, 
             n_concepts,
-            populationIdxTrans_func, 
-            # dataset_name, 
             device,
             ):
         
         super().__init__()
         self.n_concepts = n_concepts
         self.n_populations = n_populations
-        self.population_func = populationIdxTrans_func
+        # self.population_func = populationIdxTrans_func
         # self.dataset_name = dataset_name
 
         self.add_state('n_samples_per_population', default=torch.tensor(
@@ -68,11 +66,12 @@ class Population_Metrics(Metric):
         y_pred_logits: torch.Tensor,
         c_true: torch.Tensor,
         c_pred_probs: torch.Tensor,
+        subpopulation_indices: torch.Tensor,
         c_mcmc_pred_probs: Optional[torch.Tensor] = None,
         cov_mat: Optional[torch.Tensor] = None,
     ): 
-        population_indices = self.population_func(c_true)
-        unique_populations, n_samples_per_populations = population_indices.unique(return_counts=True)
+        # population_indices = self.population_func(c_true)
+        unique_populations, n_samples_per_populations = subpopulation_indices.unique(return_counts=True)
         self.n_samples_per_population[unique_populations] += n_samples_per_populations.to(self.n_samples_per_population.device)
         
         y_probs = torch.softmax(y_pred_logits, dim=1)
@@ -83,7 +82,7 @@ class Population_Metrics(Metric):
             if p not in unique_populations:
                 continue
 
-            mask = population_indices == p
+            mask = subpopulation_indices == p
             masked_c_loss = concepts_loss[mask].sum(dim=0)
             masked_t_loss = target_loss[mask].sum()
             self.concept_losses_per_population[p] += masked_c_loss

@@ -4,9 +4,28 @@
 defaults:
   - data_defaults # Inherit data_defaults arguments
 dataset: 'mnist_sum' # Name of the dataset 
-train_file_name: 'train_sum_mnist_concepts_2_1_minority_04.npz'
-val_file_name: 'test_mnist_sum_concepts.npz'
-test_file_name: 'test_mnist_sum_concepts.npz'
+train_file_name: 'train_sum_mnist_concepts_0-3_(1_1):red_minority_02.npz'
+val_file_name: 'test_sum_mnist_concepts_0-3_(1_1):red_minority_05.npz'
+test_file_name: 'test_sum_mnist_concepts_0-3_(1_1):red_minority_05.npz'
 num_classes: 7 # Number of classes of the target variable
 num_concepts: 8 # Number of concepts in dataset
-num_populations: 16 # Number of populations in dataset
+
+subpopulations:
+  - [0, 0]
+  - [0, 1]
+  - [0, 2]
+  - [0, 3]
+  - [1, 0]
+  - [1, 1]
+  - [1, 1, 'red']
+  - [1, 2]
+  - [1, 3]
+  - [2, 0]
+  - [2, 1]
+  - [2, 2]
+  - [2, 3]
+  - [3, 0]
+  - [3, 1]
+  - [3, 2]
+  - [3, 3]
+# num_populations: 16 # Number of populations in dataset
